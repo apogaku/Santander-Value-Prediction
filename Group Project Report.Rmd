@@ -1,0 +1,861 @@
+---
+title: "Santander Value Prediction Project"
+author: "Group 7: Lavanya Kanagaraj, Priya Rangarajan, Alekhya Pogaku, Ivan Filippov"
+date: "August 10, 2018"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 6
+    code_folding: hide
+---
+<script>
+   $(document).ready(function() {
+     $head = $('#header');
+     $head.prepend('<img src=\"UNCC-logo.jpg\" style=\"float: right;width: 250px;height: 200px\"/>')
+   });
+</script>
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+#![](https://imgur.com/z55cdb1.gif)
+```
+# **Business Understanding**
+
+## **Project summary**
+
+According to Epsilon research, 80% of customers are more likely to do business with a company if it provides personalized service. Banking is no exception. The digitalization of everyday lives means that customers expect services to be delivered in a personalized and timely manner, often before they have even realized they need the service.
+
+[Santander Group](https://www.santanderbank.com/us/personal) aims to go a step beyond providing a customer with financial service and intends to determine the amount or value of the customer's transaction. The primary focus is on Digital Delivery of Financial Services, reinforcing distribution and the overall customer experience in the new digital environment. The company strives to achieve it by using Big Data Analytics with platforms to leverage financial and non-financial information. That means anticipating customer needs in a more concrete, but also simple and personal way. 
+
+With so many choices for financial services, this need is greater now than ever before. This is a first step that Santander strives to nail in order to personalize their services at scale.
+
+### Examples of Analytics in Banking
+
+A US bank used [machine learning](https://www.mckinsey.com/industries/high-tech/our-insights/an-executives-guide-to-machine-learning) to study the discounts its private bankers were offering to customers. Bankers claimed that they offered discounts only to valuable ones and more than made up for that with other, high-margin business. The analytics showed something different: patterns of unnecessary discounts that could easily be corrected. After the unit adopted the changes, revenues rose by 8% within a few months.
+
+A [top consumer bank](https://www.mckinsey.com/industries/financial-services/our-insights/analytics-in-banking-time-to-realize-the-value) in Asia enjoyed a large market share but lagged behind its competitors in products per customer. It used advanced analytics to explore several sets of big data: customer demographics & key characteristics, products held, credit-card statements, transaction & point-of-sale data, online and mobile transfers & payments, and credit-bureau data. The bank discovered unsuspected similarities that allowed it to define 15,000 microsegments in its customer base. It then built a next-product-to-buy model that increased the likelihood of buying three times over.
+
+## **Project objective and data mining problem definition**
+
+Project Objectives:
+
+* Anticipate customer needs
+* Provide personalized banking
+* Identify value of transactions for each potential customer
+
+Santander Group wants to predict the value of future customer transactions (target column) in the test set with the minimal error. The evaluation metric for this project is Root Mean Squared Logarithmic Error.
+
+To solve that challenge, we are planning to follow CRISP-DM outline:
+
+1. Perform preprocessing and EDA.
+2. Validate the provided partition of the available data into a training set and a test set.
+3. Build a data mining model using the training set data. We are planning to use 2 supervised (regression decision tree vs linear regression) methods and compare the results. 
+4. Evaluate the data mining model using the test set data and achieve the minimal error across methods.
+5. Determine whether all the facets of the objective have been addressed or there are subtler interesting areas.
+6. Make conclusions about the model results and produce the report for deployment.
+
+
+# **Data Understanding & Analysis**
+
+## **Data at a glance** 
+
+We are provided with an anonymized dataset containing numeric feature variables, the numeric target column, and a string ID column.
+
+File descriptions:
+
+* train.csv - the training set;
+* test.csv - the test set.
+
+```{r datasummary, echo=TRUE, message=FALSE, warning=FALSE}
+transaction.data <- read.csv(file="train.csv", header=TRUE, sep=",")
+test_non_zero_base<-read.csv("test.csv", header= TRUE, sep=",")
+attach(transaction.data)
+attach(test_non_zero_base)
+options("scipen" = 999, "digits" = 10)
+set_plot_dimensions <- function(width_choice, height_choice) {
+        options(repr.plot.width=width_choice, repr.plot.height=height_choice)
+        }
+str(transaction.data, list.len = 10, vec.len = 5)
+summary <- summary.data.frame(transaction.data)
+summary[1:6, 1:10]
+```
+
+Preliminary observations:
+
+1. Time series nature - the dataset appears to be a time series in both dimensions, row wise and column wise.
+
+
+2. Disguised meaning of the columns - each column seems to represent individual transaction amounts, possibly related to different types.
+
+
+## **Exploratory Data Analysis**
+
+```{r packages, echo=TRUE, message=FALSE, warning=FALSE}
+library(DataExplorer)
+library(ggplot2)
+library(data.table)
+library(dplyr)
+library(plotly)
+library(e1071)
+library(tidyr)
+library(purrr)
+library(compare)
+library(tidyverse)
+library(caret)
+library(leaps)
+library(MASS)
+library(mltools)
+library(psych)
+library(rpart)
+library(rpart.plot)
+library(arules)
+library(arulesViz)
+library(knitr)
+library(randomForest)
+```
+
+First, we want to assess the data quality in terms of missing values and take a closer look at the target variable, its distribution, and summary statistics.
+
+```{r explore0, echo=TRUE, fig.align="center", fig.width=8, fig.height=8}
+#plot_missing(transaction.data)
+#transaction.data[!complete.cases(transaction.data),]
+#sapply(transaction.data, function(x) sum(is.na(x)))
+#Due to the size of the data set, commands above are difficult to print in the report
+sum(is.na(transaction.data))
+ggplot(transaction.data,aes(x=target))+geom_histogram(fill="blue",bins=50)+scale_x_continuous(trans='log2')+ggtitle("Histogram Distribution of Target")
+box_plot <- ggplot(transaction.data, aes(y= target)) + 
+  geom_boxplot() + 
+  ylab("Target") +
+  scale_y_continuous(trans='log2')+
+  ggtitle("Box Plot of Target")
+box_plot
+qqnorm(transaction.data$target,
+      datax = TRUE,
+      col = "red",
+      main = "Normal Q-Q Plot of target Distribution")
+qqline(transaction.data$target,
+      col = "blue",
+      datax = TRUE)
+(min(target))
+(max(target))
+(target_lcutoff <- quantile(target,.25))
+(target_ucutoff <- quantile(target,.75))
+(median(target))
+(mean(target))
+```
+
+As we can see, there are no missing values. The target variable is not normally distributed with several outliers that we will need to pay attention to during Data Preparation stage. The mean is higher than the median, so the distribution is right-skewed. Also, looking at the min and max, the range is very wide.
+
+
+
+Next, we dig deeper into the preliminary observations from the previous section. The broader hypothesis that we analyze is: columns and rows were originally time ordered and then shuffled for the competition. 
+
+num_rows / days_in_week : 4459 / 7 = 637
+
+num_cols / days_in_week : 4991 / 7 = 713
+
+
+This serves as an additional point in support of the hypothesis that the data represents weekly transactional activity. Based on other observations, this dataset does not seem to contain any aggregate features.
+
+To prepare for modeling, we want to better understand the meaning of columns & rows. Further, we evaluate whether all the data is truly significant for our analysis. The key criterion is the number of zeros vs. the number of unique values.
+
+```{r zerohistogram, echo=TRUE}
+tran.data.zero<-data.table(transaction.data)
+n_zeros <- tran.data.zero[, lapply(.SD, function(x) sum(x == 0) / length(x))] %>% unlist
+a <-list(
+  autotick = FALSE,
+  ticks = "outside",
+  tick0 = 0.6,
+  dtick = 0.1,
+  range = c(0.6, 1),
+  ticklen = 5,
+  tickwidth = 2,
+  tickcolor = toRGB("blue")
+)
+plot_ly(x = ~n_zeros, type = "histogram",
+       marker = list(color = "dodgerblue")) %>% 
+  layout(xaxis = a, title = "Histogram of % of zeros in dataset", titlefont = list(color = '#000000', size = 20), margin = list(l = 50, t=40))
+```
+
+
+![](https://i.imgur.com/XVfECgJ.jpg)
+
+*Source*: [Kaggle](https://www.kaggle.com/ogrellier/feature-scoring-vs-zeros)
+
+As a start, we select the subset of the training data where columns have more than 800 non-zero values and rows have more than 650.
+
+```{r subset1, echo=TRUE}
+x<-colSums(transaction.data != 0)
+y<-colnames(transaction.data)
+x_name<-"Count"
+y_name<-"Col_name"
+Train_nz<- data.frame(x, y)
+colnames(Train_nz) <- c(x_name, y_name)
+#Include columns with non_zero values greater than 800
+Subset1<-Train_nz[Train_nz$Count>800,]
+Subset1$Col_name<-as.character(Subset1$Col_name)
+#head(Subset1$Col_name)
+#str(Subset1$Col_name)
+train_non_zero<-transaction.data[Subset1$Col_name]
+#head(train_non_zero,3)
+
+w<-rowSums(transaction.data != 0)
+t<-rownames(transaction.data)
+w_name<-"Count"
+t_name<-"Row_name"
+Train_nz2<- data.frame(w, t)
+colnames(Train_nz2) <- c(w_name, t_name)
+#head(Train_nz2)
+#Include rows with non_zero values greater than 650
+Subset1a<-Train_nz2[Train_nz2$Count>650,]
+Subset1a$Row_name<-as.character(Subset1a$Row_name)
+#head(Subset1a$Row_name)
+#str(Subset1a$Row_name)
+train_non_zero<-train_non_zero[Subset1a$Row_name,]
+head(train_non_zero,3)
+
+write.csv(train_non_zero, file = "train_non_zero.csv",row.names=FALSE)
+```
+
+This approach allows to identify ~70 variables and ~140 observations that appear to be the most impactful for the target variable. We also added a column with the mean value for each row.
+
+Proceeding further, more advanced algorithms could be used to detect the patterns between columns and rows. For example, a mix of feature importance, sorting columns and rows by sum of non-zeros, and correlation plus RMSE between columns.
+
+We could also consider Principal Component Analysis to further group the variables. 
+
+```{r pca, echo=TRUE, fig.align="center", fig.width=10, fig.height=8}
+train2<-subset(train_non_zero,select=-c(target,ID))
+pc<-prcomp(train2)
+summary(pc)
+#plot(pc)
+plot(pc,type="l")
+set_plot_dimensions(1200, 1200)
+biplot(pc, cex.lab=0.8, cex.axis=0.8, cex.main=0.7, cex.sub=0.5)
+#attributes(pc)
+```
+
+
+
+The Principal Component analysis identified 69 components which is close to the total number of variables in our latest subset. Therefore, we proceed with **train_non_zero** subset. 
+
+Once the desired subset is selected, we analyze its structure and identify the necessary elements for the data preparation process.
+
+
+```{r explore1, echo=TRUE, fig.align="center", fig.width=10, fig.height=9}
+str(train_non_zero, list.len = 10, vec.len = 5)
+summary.subset <- summary.data.frame(train_non_zero)
+summary.subset[1:6, 1:10]
+plot_histogram(train_non_zero)
+plot_correlation(train_non_zero,type="continuous", theme_grey(base_size=5))
+```
+
+
+
+## **Data Preparation**
+
+*Note: the provided test set does not contain the target variable, so our evaluation of the models will have to be based on the training set. However, we still apply all the necessary data preparation steps to the test set to showcase the process.*
+
+
+### 1. Validate the partition.
+
+First, we create a similar subset from the test data, using exactly the same columns and similar non-zero rows.
+
+
+```{r compare1, echo=TRUE, message=FALSE, results="hide", warning=FALSE}
+#Compare test and train base files
+comparison <- compare(transaction.data,test_non_zero_base,allowAll=TRUE)
+comparison$tM
+semi_join(transaction.data,test_non_zero_base)
+```
+
+It seems like there aren't any common rows.
+
+```{r partitiontest1, echo=TRUE}
+subset_colnames<-colnames(train_non_zero)
+subset_ID<-as.character(train_non_zero$ID)
+test_names<-names(test_non_zero_base)[names(test_non_zero_base) %in% subset_colnames]
+test_ID<-test_non_zero_base$ID[test_non_zero_base$ID %in% subset_ID]
+test_non_zero <-test_non_zero_base[, test_names]
+
+
+z<-rowSums(test_non_zero_base != 0)
+q<-rownames(test_non_zero_base)
+z_name<-"Count"
+q_name<-"Row_name"
+Train_nz3<- data.frame(z, q)
+colnames(Train_nz3) <- c(z_name, q_name)
+#head(Train_nz3)
+#Include rows with non_zero values greater than 950
+Subset1b<-Train_nz3[Train_nz3$Count>950,]
+Subset1b$Row_name<-as.character(Subset1b$Row_name)
+#head(Subset1b$Row_name)
+#str(Subset1b$Row_name)
+test_row_names<-rownames(test_non_zero)[rownames(test_non_zero) %in% Subset1b$Row_name]
+test_non_zero<-test_non_zero[test_row_names, ]
+head(test_non_zero,3)
+
+write.csv(test_non_zero, file = "test_non_zero.csv",row.names=FALSE)
+```
+
+It's interesting that 1 column name from train_non_zero was not found in the initial test file. We would have to go back to the client to learn about the reasons: was it a typo or some variables were omitted on purpose or something else?
+
+```{r compare2, echo=TRUE, message=FALSE, results="hide", warning=FALSE}
+#Compare test and train subsets
+comparison <- compare(train_non_zero,test_non_zero,allowAll=TRUE)
+comparison$tM
+semi_join(train_non_zero,test_non_zero)
+```
+
+
+Next, we conduct several two-sample T-tests for difference in means. The null hypothesis is that the means are similar and the partition is valid. The alternative hypothesis is that the means are significantly different and the partition is invalid. We assume the significance level of 5%.
+
+```{r partitiontest2, echo=TRUE}
+mean1<-mean(train_non_zero[,3])
+mean2<-mean(test_non_zero[,2])
+sd1<-sd(train_non_zero[,3])
+sd2<-sd(test_non_zero[,2])
+l1<-length(train_non_zero[,3])
+l2<-length(test_non_zero[,2])
+dfs <- min(l1 - 1, l2 - 1)
+tdata <- (mean1 - mean2) / sqrt((sd1^2/l1)+(sd2^2/l2))
+pvalue <- 2*pt(tdata, df = dfs, lower.tail=FALSE)
+tdata; pvalue
+```
+
+Based on the test for the first predictor column, the p-value is higher than 0.05, so we don't have enough evidence to reject the null hypothesis and the partition appears valid.
+
+
+```{r partitiontest3, echo=TRUE, message=FALSE}
+mean3<-mean(train_non_zero[,4])
+mean4<-mean(test_non_zero[,3])
+sd3<-sd(train_non_zero[,4])
+sd4<-sd(test_non_zero[,3])
+l3<-length(train_non_zero[,4])
+l4<-length(test_non_zero[,3])
+dfs <- min(l3 - 1, l4 - 1)
+tdata1 <- (mean3 - mean4) / sqrt((sd3^2/l3)+(sd4^2/l4))
+pvalue1 <- 2*pt(tdata1, df = dfs, lower.tail=FALSE)
+tdata1; pvalue1
+```
+
+The previous conclusion is confirmed by the next variable as well, so we will assume the partition is valid for the goals of the modeling.
+
+
+### 2. Standardize and normalize variables
+
+To start off, we standardize both data sets using z-score method. 
+
+```{r trainstandard, echo=TRUE, fig.align="center", fig.width=10, fig.height=10}
+train_non_zero_scaled<-scale(train_non_zero[,-1])
+train_non_zero_scaled<-data.frame(train_non_zero_scaled)
+train_non_zero_scaled$ID<-train_non_zero$ID 
+train_non_zero_scaled<-train_non_zero_scaled[c(71,1:70)]
+train_non_zero_scaled$target<-train_non_zero$target
+
+#Plot correlation
+plot_correlation(train_non_zero_scaled,type="continuous")
+pairs(train_non_zero_scaled[2:10])
+```
+
+```{r teststand, echo=TRUE}
+test_non_zero_scaled<-scale(test_non_zero[,-1])
+test_non_zero_scaled<-data.frame(test_non_zero_scaled)
+test_non_zero_scaled$ID<-test_non_zero$ID 
+test_non_zero_scaled<-test_non_zero_scaled[c(69,1:68)]
+
+#Plot correlation
+#plot_correlation(test_non_zero_scaled,type="continuous")
+#pairs(test_non_zero_scaled[2:10])
+```
+
+
+Next, we analyze and, if necessary, remove outliers.
+
+```{r outliers, echo=TRUE, message = FALSE}
+outliers <- function(dataframe){
+  dataframe %>%
+    select_if(is.numeric) %>% 
+    map(~ boxplot.stats(.x)$out) 
+}
+head(outliers(train_non_zero_scaled), 5)
+```
+
+Looking at the identified outliers, we don't feel like we possess enough domain and client knowledge at this point to make a decision to remove outliers. Therefore, we will proceed to modelling with the full standardized data set and, if necessary, make iterative adjustments based on the learnings of the next phase.
+
+
+Finally, we transform the target variable to improve its normality for modelling.
+
+```{r targetnormal, echo=TRUE, warning=FALSE, message=FALSE}
+summary(train_non_zero_scaled$target)
+train_non_zero_scaled$log_target<-log(train_non_zero_scaled$target)
+train_non_zero_scaled<-train_non_zero_scaled[c(1:2,72,3:71)]
+skew(train_non_zero_scaled$log_target)
+ggplot(train_non_zero_scaled,aes(x=log_target))+geom_histogram(fill="blue")+ggtitle("Histogram of Normalized Target")
+qqnorm(train_non_zero_scaled$log_target,
+      datax = TRUE,
+      col = "red",
+      main = "Normal Q-Q Plot of log_target Distribution")
+qqline(train_non_zero_scaled$log_target,
+      col = "blue",
+      datax = TRUE)
+plot(rowSums(train_non_zero_scaled[,4:43]), train_non_zero_scaled$log_target, main="Scatterplot of log_target vs row sums", xlab="Row Sums", ylab="Log of Target", pch=16)
+```
+
+Based on the learnings from modelling, we might also consider normalizing predictor variables. However, we need to keep in mind the negative impact it would have on the ability to interpret the results of, for example, linear regression. Using base dollar values makes it much easier to understand the nature of the effect that predictors have on the target.
+
+
+### 3. Bin variables
+
+For some of the numeric predictors, we see the opportunity to apply equal frequency binning.
+
+```{r binpredictor, echo=TRUE}
+#Binning one of the predictors
+N1 <- length(train_non_zero_scaled[,4])
+nbins1 <- 5
+whichbin1 <- c(rep(0, N1))
+freq1 <- N1/nbins1
+train_non_zero_scaled <- train_non_zero_scaled[order(train_non_zero_scaled[,4]),]
+for (i in 1:nbins1) {
+  for (j in 1:N1) {
+    if((i-1)*freq1 < j && j <=i*freq1)
+      whichbin1[j] <- i
+  }
+}
+whichbin1<-gsub(pattern = "1", replacement = "VLow", whichbin1)
+whichbin1<-gsub(pattern = "2", replacement = "Low", whichbin1)
+whichbin1<-gsub(pattern = "3", replacement = "Medium", whichbin1)
+whichbin1<-gsub(pattern = "4", replacement = "High", whichbin1)
+whichbin1<-gsub(pattern = "5", replacement = "VHigh", whichbin1)
+train_non_zero_scaled[,4]<-whichbin1
+
+
+#plot frequencies in the bins
+barplot(table(train_non_zero_scaled[,4]))
+
+N2 <- length(test_non_zero_scaled[,2])
+nbins2 <- 5
+whichbin2 <- c(rep(0, N2))
+freq2 <- N2/nbins2
+test_non_zero_scaled <- test_non_zero_scaled[order(test_non_zero_scaled[,2]),]
+for (i in 1:nbins2) {
+  for (j in 1:N2) {
+    if((i-1)*freq2 < j && j <=i*freq2)
+      whichbin2[j] <- i
+  }
+}
+whichbin2<-gsub(pattern = "1", replacement = "VLow", whichbin2)
+whichbin2<-gsub(pattern = "2", replacement = "Low", whichbin2)
+whichbin2<-gsub(pattern = "3", replacement = "Medium", whichbin2)
+whichbin2<-gsub(pattern = "4", replacement = "High", whichbin2)
+whichbin2<-gsub(pattern = "5", replacement = "VHigh", whichbin2)
+test_non_zero_scaled[,2]<-whichbin2
+
+#plot frequencies in the bins
+barplot(table(test_non_zero_scaled[,2]))
+
+write.csv(train_non_zero_scaled, file = "train_non_zero_scaled.csv",row.names=FALSE)
+```
+
+
+If necessary, we might want to consider binning based on predictive value or clarifying the best cut-off numbers with the client experts. 
+
+Also, as we plan to apply the classification decision tree, we have decided to try equal frequency binning for the target variable.
+
+
+```{r decisiontree0, echo=TRUE}
+#Binning Target Variable
+Nt <- length(train_non_zero_scaled$log_target)
+nbinst <- 5
+whichbint <- c(rep(0, Nt))
+freqt <- Nt/nbinst
+train_non_zero_scaled_sorted <- train_non_zero_scaled[order(train_non_zero_scaled$log_target),]
+for (i in 1:nbinst) {
+  for (j in 1:Nt) {
+    if((i-1)*freqt < j && j <=i*freqt)
+      whichbint[j] <- i
+  }
+}
+whichbint1<-gsub(pattern = "1", replacement = "VLow", whichbint)
+whichbint2<-gsub(pattern = "2", replacement = "Low", whichbint1)
+whichbint3<-gsub(pattern = "3", replacement = "Medium", whichbint2)
+whichbint4<-gsub(pattern = "4", replacement = "High", whichbint3)
+whichbint5<-gsub(pattern = "5", replacement = "VHigh", whichbint4)
+train_non_zero_scaled_sorted$bin_target<-whichbint5
+train_non_zero_scaled_sorted<-train_non_zero_scaled_sorted[c(1:3,73,4:72)]
+
+#plot frequencies in the bins
+barplot(table(train_non_zero_scaled_sorted$bin_target))
+```
+
+
+
+# **Modeling, Evaluation, and Reporting**
+## **Build several models and compare results** {.tabset}
+
+### a. Clustering {.tabset}
+
+We start with unsupervised clustering to see if we can identify any patterns of similarity across data rows. We apply hierarchical agglomerative clustering using default complete linkage.
+
+```{r clustering, echo=TRUE, message=FALSE, warning=FALSE, fig.align="center", fig.width=15, fig.height=12}
+##calculate distance matrix (default is Euclidean distance)
+distance = dist(train_non_zero_scaled[,5:72])
+
+# Hierarchical agglomerative clustering using default complete linkage 
+train.hclust = hclust(distance)
+#set_plot_dimensions(1600, 1200)
+plot(train.hclust, cex=0.6)
+member = cutree(train.hclust,3)
+table(member)
+
+##calculate the same for the test subset
+distance2 = dist(test_non_zero_scaled[,3:69])
+train.hclust2 = hclust(distance2)
+member2 = cutree(train.hclust2,3)
+table(member2)
+```
+
+
+Clustering analysis on the entire standardized training subset did not yield any significant results; around 98% of the records have the same cluster membership. Therefore, to maintain consistency in evaluating the models, we will proceed with treating each test subset record individually as well.
+
+
+
+### b. Linear regression {.tabset}
+
+Next, we proceed to supervised methods to achieve the goal of predicting future customer transactions.
+
+Given the disguised nature of columns, we start with applying step-wise linear regression in both directions on the whole standardized training subset with the normalized target variable. 
+
+
+```{r regression1, echo=TRUE, message=FALSE, warning=FALSE}
+#*use train_non_zero_scaled on log_target*
+full.model<-lm(log_target ~., data = train_non_zero_scaled[,3:72])
+step.model <- stepAIC(full.model, direction = "both", trace = FALSE)
+summary(step.model)
+```
+
+The final model is significant as a whole, but explains only 55% of the variation in the data.
+
+```{r regression2, echo=TRUE, message=FALSE, warning=FALSE}
+#Evaluate using the same training set
+train_non_zero_scaled$pred_target_value_reg<-exp(predict(step.model,train_non_zero_scaled))
+(rmse1a<-RMSE(train_non_zero_scaled$target, train_non_zero_scaled$pred_target_value_reg))
+(rmsle1a<-rmsle(preds = as.numeric(train_non_zero_scaled$pred_target_value_reg), actuals = as.numeric(train_non_zero_scaled$target)))
+par(mfrow = c(2, 2))
+plot(step.model)
+
+
+#test_non_zero_scaled$pred_target_value_reg<-exp(predict(step.model,test_non_zero_scaled))
+```
+
+### c. Decision Tree {.tabset}
+
+ - On continuous variable
+ 
+```{r treecont, echo=TRUE, message=FALSE, warning=FALSE}
+#*use train_non_zero_scaled on log_target*
+tree1<-rpart(log_target ~ ., data=train_non_zero_scaled[,3:72], method="anova", model=TRUE)
+#summary(tree1)
+tmp<-printcp(tree1)
+(rsq.val <- 1-tmp[,3])
+set_plot_dimensions(1200, 1200)
+#plot(tree1, uniform=TRUE, main="Regression Tree for Continuous Normal Target ", margin=0.05)
+#text(tree1, use.n=TRUE, all=TRUE, cex=.6)
+prp(tree1)
+```
+
+After the twelfth split, this regression decision tree model explains around 67% of the variation in the data.
+ 
+ 
+ - On binned variable
+ 
+```{r treebin, echo=TRUE, message=FALSE, warning=FALSE}
+#*use train_non_zero_scaled_sorted on bin_target*
+tree2<-rpart(bin_target ~ ., data=train_non_zero_scaled_sorted[,4:73], method="class",model=TRUE)
+#summary(tree1)
+printcp(tree2)
+#plot(tree2, uniform=TRUE, main="Classification Tree for Categorical Target ", margin=0.05)
+#text(tree2, use.n=TRUE, all=TRUE, cex=.65)
+prp(tree2)
+```
+
+
+```{r treeresult, echo=TRUE, message=FALSE, warning=FALSE}
+#evaluating the first tree model (continous) using the same training set
+train_non_zero_scaled$pred_target_value_tree1<-exp(predict(tree1, train_non_zero_scaled))
+(rmse2a<-RMSE(train_non_zero_scaled$target, train_non_zero_scaled$pred_target_value_tree1))
+(rmsle2a<-rmsle(preds = as.numeric(train_non_zero_scaled$pred_target_value_tree1), actuals = as.numeric(train_non_zero_scaled$target)))
+
+#evaluating the second tree model (categorical) using the same training set
+train_non_zero_scaled_sorted$pred_target_value_tree2<-predict(tree2, train_non_zero_scaled_sorted, type = "class")
+confusionMatrix(train_non_zero_scaled_sorted$pred_target_value_tree2,as.factor(train_non_zero_scaled_sorted$bin_target), dnn = c("Prediction", "True Value"))
+
+#test_non_zero_scaled$pred_target_value_tree<-exp(predict(tree1,test_non_zero_scaled))
+```
+
+
+### d. Association Rules {.tabset}
+
+To start off with this approach, we create a subset of the train_non_zero that includes only some of the variables marked as significant during regression analysis. After making every column in the subset categorical, we proceed with generating association rules for the variable "target" at 35% support and 60% confidence level.
+
+```{r assocrulesprep, echo=FALSE, message=FALSE, warning=FALSE, results="hide"}
+train_non_zero_scaled_sorted_ruled <- read.csv(file = "train_non_zero.csv", stringsAsFactors=TRUE)
+#subsetting based on some of the significant predictors from the regression model
+train_non_zero_scaled_sorted_ruled<-train_non_zero_scaled_sorted_ruled[,c("X20aa07010", "X26fc93eb7","X66ace2992","c10f31664","b43a7cfd5","X024c577b9","ea772e115", "target")]
+
+
+
+#making predictor 1 categorical
+Np <- length(train_non_zero_scaled_sorted_ruled[,1])
+nbinsp1 <- 5
+whichbinp1 <- c(rep(0, Np))
+freqp1 <- Np/nbinsp1
+train_non_zero_scaled_sorted_ruled <- train_non_zero_scaled_sorted_ruled[order(train_non_zero_scaled_sorted_ruled[,1]),]
+for (i in 1:nbinsp1) {
+  for (j in 1:Np) {
+    if((i-1)*freqp1 < j && j <=i*freqp1)
+      whichbinp1[j] <- i
+  }
+}
+whichbinp1<-gsub(pattern = "1", replacement = "VLow", whichbinp1)
+whichbinp1<-gsub(pattern = "2", replacement = "Low", whichbinp1)
+whichbinp1<-gsub(pattern = "3", replacement = "Medium", whichbinp1)
+whichbinp1<-gsub(pattern = "4", replacement = "High", whichbinp1)
+whichbinp1<-gsub(pattern = "5", replacement = "VHigh", whichbinp1)
+train_non_zero_scaled_sorted_ruled[,1]<-whichbinp1
+
+#making predictor 2 categorical
+nbinsp2 <- 4
+whichbinp2 <- c(rep(0, Np))
+freqp2 <- Np/nbinsp2
+train_non_zero_scaled_sorted_ruled <- train_non_zero_scaled_sorted_ruled[order(train_non_zero_scaled_sorted_ruled[,2]),]
+for (i in 1:nbinsp2) {
+  for (j in 1:Np) {
+    if((i-1)*freqp2 < j && j <=i*freqp2)
+      whichbinp2[j] <- i
+  }
+}
+whichbinp2<-gsub(pattern = "1", replacement = "Low", whichbinp2)
+whichbinp2<-gsub(pattern = "2", replacement = "Medium", whichbinp2)
+whichbinp2<-gsub(pattern = "3", replacement = "High", whichbinp2)
+whichbinp2<-gsub(pattern = "4", replacement = "VHigh", whichbinp2)
+train_non_zero_scaled_sorted_ruled[,2]<-whichbinp2
+
+#making predictor 3 categorical
+nbinsp3 <- 3
+whichbinp3 <- c(rep(0, Np))
+freqp3 <- Np/nbinsp3
+train_non_zero_scaled_sorted_ruled <- train_non_zero_scaled_sorted_ruled[order(train_non_zero_scaled_sorted_ruled[,3]),]
+for (i in 1:nbinsp3) {
+  for (j in 1:Np) {
+    if((i-1)*freqp3 < j && j <=i*freqp3)
+      whichbinp3[j] <- i
+  }
+}
+whichbinp3<-gsub(pattern = "1", replacement = "Low", whichbinp3)
+whichbinp3<-gsub(pattern = "2", replacement = "Medium", whichbinp3)
+whichbinp3<-gsub(pattern = "3", replacement = "High", whichbinp3)
+train_non_zero_scaled_sorted_ruled[,3]<-whichbinp3
+
+#making predictor 4 categorical
+nbinsp4 <- 5
+whichbinp4 <- c(rep(0, Np))
+freqp4 <- Np/nbinsp4
+train_non_zero_scaled_sorted_ruled <- train_non_zero_scaled_sorted_ruled[order(train_non_zero_scaled_sorted_ruled[,4]),]
+for (i in 1:nbinsp4) {
+  for (j in 1:Np) {
+    if((i-1)*freqp4 < j && j <=i*freqp4)
+      whichbinp4[j] <- i
+  }
+}
+whichbinp4<-gsub(pattern = "1", replacement = "Low", whichbinp4)
+whichbinp4<-gsub(pattern = "2", replacement = "Medium", whichbinp4)
+whichbinp4<-gsub(pattern = "3", replacement = "Above Medium", whichbinp4)
+whichbinp4<-gsub(pattern = "4", replacement = "High", whichbinp4)
+whichbinp4<-gsub(pattern = "5", replacement = "VHigh", whichbinp4)
+train_non_zero_scaled_sorted_ruled[,4]<-whichbinp4
+
+#making predictor 5 categorical
+Np <- length(train_non_zero_scaled_sorted_ruled[,5])
+nbinsp5 <- 6
+whichbinp5 <- c(rep(0, Np))
+freqp5 <- Np/nbinsp5
+train_non_zero_scaled_sorted_ruled <- train_non_zero_scaled_sorted_ruled[order(train_non_zero_scaled_sorted_ruled[,5]),]
+for (i in 1:nbinsp5) {
+  for (j in 1:Np) {
+    if((i-1)*freqp5 < j && j <=i*freqp5)
+      whichbinp5[j] <- i
+  }
+}
+whichbinp5<-gsub(pattern = "1", replacement = "VLow", whichbinp5)
+whichbinp5<-gsub(pattern = "2", replacement = "Low", whichbinp5)
+whichbinp5<-gsub(pattern = "3", replacement = "Medium", whichbinp5)
+whichbinp5<-gsub(pattern = "4", replacement = "Above Medium", whichbinp5)
+whichbinp5<-gsub(pattern = "5", replacement = "High", whichbinp5)
+whichbinp5<-gsub(pattern = "6", replacement = "VHigh", whichbinp5)
+train_non_zero_scaled_sorted_ruled[,5]<-whichbinp5
+
+#making predictor 6 categorical
+nbinsp6 <- 4
+whichbinp6 <- c(rep(0, Np))
+freqp6 <- Np/nbinsp6
+train_non_zero_scaled_sorted_ruled <- train_non_zero_scaled_sorted_ruled[order(train_non_zero_scaled_sorted_ruled[,6]),]
+for (i in 1:nbinsp6) {
+  for (j in 1:Np) {
+    if((i-1)*freqp6 < j && j <=i*freqp6)
+      whichbinp6[j] <- i
+  }
+}
+whichbinp6<-gsub(pattern = "1", replacement = "VLow", whichbinp6)
+whichbinp6<-gsub(pattern = "2", replacement = "Low", whichbinp6)
+whichbinp6<-gsub(pattern = "3", replacement = "Medium", whichbinp6)
+whichbinp6<-gsub(pattern = "4", replacement = "High", whichbinp6)
+train_non_zero_scaled_sorted_ruled[,6]<-whichbinp6
+
+#making predictor 7 categorical
+nbinsp7 <- 3
+whichbinp7 <- c(rep(0, Np))
+freqp7 <- Np/nbinsp7
+train_non_zero_scaled_sorted_ruled <- train_non_zero_scaled_sorted_ruled[order(train_non_zero_scaled_sorted_ruled[,7]),]
+for (i in 1:nbinsp7) {
+  for (j in 1:Np) {
+    if((i-1)*freqp7 < j && j <=i*freqp7)
+      whichbinp7[j] <- i
+  }
+}
+whichbinp7<-gsub(pattern = "1", replacement = "Low", whichbinp7)
+whichbinp7<-gsub(pattern = "2", replacement = "Medium", whichbinp7)
+whichbinp7<-gsub(pattern = "3", replacement = "High", whichbinp7)
+train_non_zero_scaled_sorted_ruled[,7]<-whichbinp7
+
+#making target categorical
+nbinstar <- 5
+whichbintar <- c(rep(0, Np))
+freqtar <- Np/nbinstar
+train_non_zero_scaled_sorted_ruled <- train_non_zero_scaled_sorted_ruled[order(train_non_zero_scaled_sorted_ruled[,8]),]
+for (i in 1:nbinstar) {
+  for (j in 1:Np) {
+    if((i-1)*freqtar < j && j <=i*freqtar)
+      whichbintar[j] <- i
+  }
+}
+whichbintar<-gsub(pattern = "1", replacement = "VLow", whichbintar)
+whichbintar<-gsub(pattern = "2", replacement = "Low", whichbintar)
+whichbintar<-gsub(pattern = "3", replacement = "Medium", whichbintar)
+whichbintar<-gsub(pattern = "4", replacement = "High", whichbintar)
+whichbintar<-gsub(pattern = "5", replacement = "VHigh", whichbintar)
+train_non_zero_scaled_sorted_ruled[,8]<-whichbintar
+```
+
+```{r assocrulesprep2, echo=FALSE, message=FALSE, warning=FALSE, results="hide"}
+train_non_zero_scaled_sorted_ruled[,c("X20aa07010", "X26fc93eb7","X66ace2992","c10f31664","b43a7cfd5","X024c577b9","ea772e115", "target")]
+
+train_non_zero_scaled_sorted_ruled$X20aa07010<-as.factor(train_non_zero_scaled_sorted_ruled$X20aa07010)
+train_non_zero_scaled_sorted_ruled$X26fc93eb7<-as.factor(train_non_zero_scaled_sorted_ruled$X26fc93eb7)
+train_non_zero_scaled_sorted_ruled$X66ace2992<-as.factor(train_non_zero_scaled_sorted_ruled$X66ace2992)
+train_non_zero_scaled_sorted_ruled$c10f31664<-as.factor(train_non_zero_scaled_sorted_ruled$c10f31664)
+train_non_zero_scaled_sorted_ruled$b43a7cfd5<-as.factor(train_non_zero_scaled_sorted_ruled$b43a7cfd5)
+train_non_zero_scaled_sorted_ruled$X024c577b9<-as.factor(train_non_zero_scaled_sorted_ruled$X024c577b9)
+train_non_zero_scaled_sorted_ruled$ea772e115<-as.factor(train_non_zero_scaled_sorted_ruled$ea772e115)
+train_non_zero_scaled_sorted_ruled$target<-as.factor(train_non_zero_scaled_sorted_ruled$target)
+```
+
+
+
+```{r assocrulesrun, echo=TRUE, message=FALSE, warning=FALSE}
+#*use train_non_zero_scaled_sorted_ruled on target*
+train_non_zero_scaled_sorted_ruled <- as(train_non_zero_scaled_sorted_ruled, "transactions")
+target_rules <- apriori(data=train_non_zero_scaled_sorted_ruled, parameter=list (supp=0.035,conf = 0.6, minlen=3, maxlen=5), appearance = list (rhs=c("target=VLow", "target=Low", "target=Medium", "target=High", "target=VHigh")))
+inspect(target_rules[1:10])
+target_rules<-sort(target_rules, by="confidence", decreasing=TRUE)
+
+set_plot_dimensions(1200, 1200)
+plot(target_rules[1:10], measure = "support", method="graph", shading="confidence", cex=0.7)
+```
+
+
+
+### e. Neural Networks {.tabset}
+
+Performed with the help of Rattle package at 15 hidden layers.
+
+![](https://i.imgur.com/m273Lyc.jpg)
+
+
+
+### f. Random Forest {.tabset}
+
+```{r RandomForest, echo=TRUE, message=FALSE, warning=FALSE}
+set.seed(12)
+train_non_zero_scaled=train_non_zero_scaled %>% mutate_if(is.character, as.factor)
+target.forest=randomForest(log_target~.,data=train_non_zero_scaled[,3:72],mtry=15,importance=TRUE,ntree=250)
+target.forest
+varImpPlot(target.forest, cex=0.5)
+
+train_non_zero_scaled$pred_target_value_forest<-exp(predict(target.forest,train_non_zero_scaled))
+(rmse3a<-RMSE(train_non_zero_scaled$target, train_non_zero_scaled$pred_target_value_forest))
+(rmsle3a<-rmsle(preds = as.numeric(train_non_zero_scaled$pred_target_value_forest), actuals = as.numeric(train_non_zero_scaled$target)))
+```
+
+
+## **Project Deployment**
+
+### Findings Summary
+
+To come up with recommendations for deployment, we first look at the statistical summary of model performance. Since the project objective is predicting the actual dollar value of the future transaction, we will focus on three supervised methods: linear regression vs regression decision tree vs random forest. We will use the insights from other models to enrich our proposal.
+
+
+```{r evaluationsummary, echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
+models_summary<-matrix(c("55%", "67%","20%", paste("$",round(rmse1a, 2)), paste("$",round(rmse2a, 2)), paste("$",round(rmse3a, 2)), round(rmsle1a, 2), round(rmsle2a, 2),round(rmsle3a, 2)), ncol=3,byrow=TRUE)
+colnames(models_summary) <- c("Linear Regression","Regression Decision Tree","Random Forest of Regression Trees")
+rownames(models_summary) <- c("R Squared","RMSE on the same set","RMSLE on the same set")
+models_summary <- as.table(models_summary)
+kable(models_summary, caption="Models Evaluation Summary")
+```
+
+It's worth reiterating that these results are only estimates as the target variable for the test set wasn't provided. Running the same models on a different subset of the training file exhibited drastically worse numbers, which can mean 2 things:  
+
+1) The time series nature of the data makes choosing the subset of the same file by different criteria impossible.
+
+2) Models are not trained enough to be very useful in practice.
+
+We would need more information from the client to determine specific reasons.
+
+As for other models, the classification tree achieved 60% accuracy and could be used to further analyze the dependencies among predictors and between predictors and the target variable. Yet to improve its power, we need to reevaluate the binning technique applied to both the feature and the target column, based on more accurate data & domain understanding.
+
+Clustering did not yield any significant results on either training or test subset. Depending on the feedback from the client, we might want to revisit this unsupervised method along with principal component analysis. It could help us narrow the focus down to an even smaller group of the most significant features. Then we would have to recheck the partition validation.
+
+Association rules provided valuable insights as multiple complex rules (3 - 5 elements) with specified 35% support and 60% confidence were found just for the subset of variables. It reinforces the hypothesis about a smaller number of truly important features that affect the target variable. However, the identical value of support for many of the top 10 rules raises concerns that require further investigation. It may be related to the equal frequency binning, so to improve the reliability of the insights from association rules, we will likely need to consider binning based on the target or client-defined boundary values.
+
+Neural network with 15 hidden layers fits the data pretty well, as you can see on the respective graph, but pseudo R-square is the lowest across models. NN's black box nature makes it harder to analyze the reasons for such performance. So, going forward, we will need to reconsider the inputs to this technique.
+
+
+### Recommendations
+
+As we can see, random forest is doing better in every metric except for the percentage of variation explained. However, all metrics are not as high as desired. 
+
+Overall, given the volatile nature of anonymized data, **the flexibility and advanced algorithms of random forest make it the model of choice in our recommendation.** Analysts shouldn't depend on a single data mining method but instead should seek a confluence of results from different models. That will provide robustness to the conclusions.
+
+Important observation is the potential number of variables that actually matter. Regression output shows only several variables with significant individual p-values; decision trees stop after ~12 splits; and association rules identify numerous strong relationships between the subset of regression variables and the target. Further analyzing this observation can be the key to figuring out genuine time series features vs lag variables or fake noise data.
+
+
+Steps going forward to improve the predictive power:  
+
+* First, to support the iterative nature of CRISP-DM process, we will request the feedback on the variables and the domain they were derived from.
+
+* Second, we will evaluate the actual test RMSLE with the current modeling.
+
+* Based on the findings, we are going to solidify all the aspects of this time series.
+
+* After that, we adjust our data preparation methods and revisit clustering and PCA to improve the training set for the models.
+
+* So far, only basic transformation methods have been used. We will also need to consider potential formulas of a more complex relationship between predictors and the target (different powers, inverse correlations, etc.).
+
+* Finally, we will tune the models, prioritizing random forest, on the updated training set and reapply the predictions to the test set. We might also take a closer look at the support for  association rules after enhanced discretizing.
+
+
+Additional research questions:  
+
+* Once we better understand the nature of the data, we would look at the potentially missed factors that can influence customer decisions.
+
+* Once satisfactory model results are reached, the analysis of existing customer communication methods needs to be conducted to determine the most appropriate channels that would use the project findings.
